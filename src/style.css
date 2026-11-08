@@ -1,0 +1,123 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --c-paper: 244 239 230;
+  --c-surface: 255 253 249;
+  --c-ink: 28 25 23;
+  --c-muted: 107 98 90;
+  --c-subtle: 128 118 109;
+  --c-line: 231 224 213;
+  --c-clay: 176 80 31;
+  --c-on-clay: 255 255 255;
+  --c-sunday: 185 28 28;
+  --c-shadow: 28 25 23;
+  --glow-a: rgb(196 92 38 / 0.09);
+  --glow-b: rgb(47 111 143 / 0.08);
+  color-scheme: light;
+}
+
+.dark {
+  --c-paper: 20 18 16;
+  --c-surface: 31 28 25;
+  --c-ink: 241 236 227;
+  --c-muted: 176 167 156;
+  --c-subtle: 150 141 131;
+  --c-line: 56 51 46;
+  --c-clay: 232 135 84;
+  --c-on-clay: 36 20 10;
+  --c-sunday: 248 113 113;
+  --c-shadow: 0 0 0;
+  --glow-a: rgb(232 135 84 / 0.07);
+  --glow-b: rgb(80 150 190 / 0.06);
+  color-scheme: dark;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  @apply bg-paper font-sans text-ink antialiased;
+  background-image:
+    radial-gradient(circle at top left, var(--glow-a), transparent 34%),
+    radial-gradient(circle at top right, var(--glow-b), transparent 30%);
+  background-attachment: fixed;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.fade-edges {
+  mask-image: linear-gradient(to right, transparent, #000 16px, #000 calc(100% - 24px), transparent);
+}
+
+:focus-visible {
+  @apply outline-none ring-2 ring-clay/60 ring-offset-2 ring-offset-paper;
+}
+
+/* Chuyển tháng / năm */
+.slide-next-enter-active,
+.slide-next-leave-active,
+.slide-prev-enter-active,
+.slide-prev-leave-active,
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.slide-next-enter-from,
+.slide-prev-leave-to {
+  opacity: 0;
+  transform: translateX(24px);
+}
+.slide-next-leave-to,
+.slide-prev-enter-from {
+  opacity: 0;
+  transform: translateX(-24px);
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* Modal */
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s ease;
+}
+.modal-enter-active .modal-panel,
+.modal-leave-active .modal-panel {
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+.modal-enter-from .modal-panel,
+.modal-leave-to .modal-panel {
+  transform: translateY(24px) scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

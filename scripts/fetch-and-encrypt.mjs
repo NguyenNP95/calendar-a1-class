@@ -1,0 +1,257 @@
+import { createCipheriv, pbkdf2Sync, randomBytes } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+loadEnv(join(root, '.env'))
+
+const SAMPLE = process.argv.includes('--sample')
+const ITERATIONS = 210000
+const SAMPLE_PASSWORD = 'a1-class'
+const publicDir = join(root, 'public')
+mkdirSync(publicDir, { recursive: true })
+
+const requireAuth = (process.env.REQUIRE_AUTH || process.env.VITE_REQUIRE_AUTH || 'true') !== 'false'
+const useSample = SAMPLE || !process.env.SHEET_ID
+
+// Trên CI tuyệt đối không deploy dữ liệu mẫu, cũng không mã hoá bằng mật khẩu mặc định (đã công khai trong README).
+if (process.env.CI && !SAMPLE && !process.env.SHEET_ID) {
+  fail('Thiếu secret SHEET_ID trên GitHub Actions.')
+}
+if (requireAuth && !useSample && !process.env.APP_PASSWORD) {
+  fail('Thiếu APP_PASSWORD. Không thể mã hoá dữ liệu thật bằng mật khẩu mặc định.')
+}
+if (requireAuth && !useSample && process.env.APP_PASSWORD === SAMPLE_PASSWORD) {
+  console.warn('⚠️  APP_PASSWORD đang trùng mật khẩu mẫu công khai, hãy đổi sang mật khẩu riêng.')
+}
+if (!SAMPLE && !process.env.SHEET_ID) {
+  console.warn('Không có SHEET_ID, dùng dữ liệu mẫu. Chạy với --sample hoặc khai báo SHEET_ID.')
+}
+
+const password = process.env.APP_PASSWORD || SAMPLE_PASSWORD
+const people = useSample ? samplePeople() : await fetchSheetPeople()
+
+const payload = {
+  generatedAt: new Date().toISOString(),
+  people,
+}
+
+if (requireAuth) {
+  writeFileSync(join(publicDir, 'data.enc'), JSON.stringify(encryptJson(JSON.stringify(payload), password)))
+  removePublic('data.json')
+} else {
+  writeFileSync(join(publicDir, 'data.json'), JSON.stringify(payload, null, 2))
+  removePublic('data.enc')
+}
+
+writeFileSync(
+  join(publicDir, 'meta.json'),
+  JSON.stringify({ generatedAt: payload.generatedAt, count: people.length, encrypted: requireAuth }, null, 2),
+)
+
+console.log(
+  `Đã ghi ${people.length} người → public/${requireAuth ? 'data.enc' : 'data.json'} (${requireAuth ? 'đã mã hoá' : 'public'})`,
+)
+
+// ——————————————————————————————————————————————
+
+function fail(message) {
+  console.error(`✖ ${message}`)
+  process.exit(1)
+}
+
+function removePublic(name) {
+  const path = join(publicDir, name)
+  if (existsSync(path)) unlinkSync(path)
+}
+
+function loadEnv(path) {
+  if (!existsSync(path)) return
+  for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const idx = trimmed.indexOf('=')
+    if (idx < 0) continue
+    const key = trimmed.slice(0, idx).trim()
+    let value = trimmed.slice(idx + 1).trim()
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+    if (process.env[key] == null) process.env[key] = value
+  }
+}
+
+function encryptJson(plain, pass) {
+  const salt = randomBytes(16)
+  const iv = randomBytes(12)
+  const key = pbkdf2Sync(pass, salt, ITERATIONS, 32, 'sha256')
+  const cipher = createCipheriv('aes-256-gcm', key, iv)
+  const encrypted = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()])
+  const data = Buffer.concat([encrypted, cipher.getAuthTag()])
+  return {
+    v: 1,
+    kdf: 'pbkdf2-sha256',
+    iter: ITERATIONS,
+    salt: salt.toString('base64'),
+    iv: iv.toString('base64'),
+    data: data.toString('base64'),
+  }
+}
+
+function strip(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+const HEADERS = {
+  stt: 'stt',
+  'ho ten': 'name',
+  'ho va ten': 'name',
+  ten: 'name',
+  'ngay sinh': 'birthday',
+  'sinh nhat': 'birthday',
+  'so dien thoai': 'phone',
+  'dien thoai': 'phone',
+  sdt: 'phone',
+  'gioi tinh': 'gender',
+  'dia chi': 'address',
+  'ghi chu': 'note',
+  'da lay chong vo': 'marriedAt',
+  'ngay cuoi': 'marriedAt',
+  'ngay ket hon': 'marriedAt',
+  avatar: 'avatar',
+  anh: 'avatar',
+  'anh dai dien': 'avatar',
+  'am lich': 'lunar',
+  'lich am': 'lunar',
+  'sinh nhat am': 'lunar',
+  'sn am': 'lunar',
+  'tinh theo am lich': 'lunar',
+}
+
+function headerKey(header) {
+  return HEADERS[strip(header)] || null
+}
+
+// Nhận "DD/MM/YYYY", "D-M-YY", "DD.MM" (không năm), "YYYY-MM-DD". Không rõ năm → "0000-MM-DD".
+function parseVnDate(value) {
+  if (value == null || value === '') return ''
+  const text = String(value).trim()
+  const iso = text.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$/)
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`
+  const match = text.match(/^(\d{1,2})[/\-.](\d{1,2})(?:[/\-.](\d{2,4}))?$/)
+  if (!match) return text
+  let [, d, m, y = '0000'] = match
+  if (Number(m) < 1 || Number(m) > 12 || Number(d) < 1 || Number(d) > 31) return text
+  if (y.length === 2) y = Number(y) > 50 ? `19${y}` : `20${y}`
+  return `${y.padStart(4, '0')}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+}
+
+const TRUTHY = new Set(['x', 'v', 'co', 'yes', 'y', '1', 'true', 'am', 'am lich', 'lich am'])
+function isTruthyCell(value) {
+  const text = String(value ?? '').trim()
+  return TRUTHY.has(strip(text)) || ['✓', '✔', '☑'].includes(text)
+}
+
+function rowsToPeople(values) {
+  if (!values?.length) return []
+  const headers = values[0].map(headerKey)
+  const people = []
+  for (const row of values.slice(1)) {
+    const person = {
+      stt: '', name: '', birthday: '', phone: '', gender: '', address: '', note: '', marriedAt: '', avatar: '', lunar: false,
+    }
+    headers.forEach((key, index) => {
+      if (!key) return
+      const raw = row[index] ?? ''
+      if (key === 'birthday' || key === 'marriedAt') person[key] = parseVnDate(raw)
+      else if (key === 'lunar') person[key] = isTruthyCell(raw)
+      else person[key] = String(raw).trim()
+    })
+    if (person.name) people.push(person)
+  }
+  return people
+}
+
+async function fetchSheetPeople() {
+  const { GoogleAuth } = await import('google-auth-library')
+  const auth = new GoogleAuth({
+    credentials: readCredentials(),
+    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+  })
+  const client = await auth.getClient()
+  const token = await client.getAccessToken()
+  const id = process.env.SHEET_ID
+  const range = encodeURIComponent(process.env.SHEET_RANGE || 'A1:Z1000')
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${range}`
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token.token || token}` },
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Google Sheets API ${res.status}: ${body}`)
+  }
+  const json = await res.json()
+  const result = rowsToPeople(json.values || [])
+  if (!result.length) fail('Sheet không có dòng nào có "Họ tên". Kiểm tra lại tên cột và SHEET_RANGE.')
+  return result
+}
+
+function readCredentials() {
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+  if (raw) {
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return JSON.parse(Buffer.from(raw, 'base64').toString('utf8'))
+    }
+  }
+  const file = process.env.GOOGLE_APPLICATION_CREDENTIALS
+  if (file && existsSync(file)) return JSON.parse(readFileSync(file, 'utf8'))
+  const fallback = join(root, 'service-account.json')
+  if (existsSync(fallback)) return JSON.parse(readFileSync(fallback, 'utf8'))
+  fail('Thiếu GOOGLE_SERVICE_ACCOUNT_JSON hoặc service-account.json')
+}
+
+// Dữ liệu mẫu: vài ngày sinh tính theo hôm nay để thấy banner "Hôm nay" và mục "Sắp tới".
+function samplePeople() {
+  const now = new Date()
+  const rel = (days, year) => {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days)
+    return `${year}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+  const p = (stt, name, birthday, gender, extra = {}) => ({
+    stt: String(stt),
+    name,
+    birthday,
+    phone: `09000000${String(stt).padStart(2, '0')}`,
+    gender,
+    address: 'Hà Nội',
+    note: '',
+    marriedAt: '',
+    avatar: '',
+    lunar: false,
+    ...extra,
+  })
+  return [
+    p(1, 'Nguyễn Minh Anh', rel(0, 1995), 'Nam', { marriedAt: '2024-10-28' }),
+    p(2, 'Trần Thu Hà', rel(3, 1995), 'Nữ', { note: 'Tổ trưởng', marriedAt: '2023-01-21' }),
+    p(3, 'Lê Lan Chi', '1995-02-22', 'Nữ', { marriedAt: rel(9, 2020) }),
+    p(4, 'Phạm Hoàng Nam', rel(12, 1995), 'Nam'),
+    p(5, 'Vũ Bảo Ngọc', '1995-03-13', 'Nữ', { marriedAt: '2024-10-19', address: '12 Lý Thường Kiệt, Hoàn Kiếm, Hà Nội' }),
+    p(6, 'Đỗ Thanh Tùng', '1995-08-12', 'Nam', { marriedAt: '2021-03-21' }),
+    p(7, 'Hoàng Gia Huy', rel(12, 1996), 'Nam', { note: 'Lớp phó' }),
+    p(8, 'Bùi Khánh Linh', '1995-04-19', 'Nữ', { lunar: true, note: 'Tổ chức sinh nhật theo âm lịch' }),
+    p(9, 'Ngô Quang Đức', '1996-02-29', 'Nam'),
+    p(10, 'Đặng Mai Phương', '1995-12-24', 'Nữ', { phone: '' }),
+    p(11, 'Phan Tuấn Kiệt', '1995-01-07', ''),
+    p(12, 'Lý Hải Yến', '1995-06-30', 'Nữ', { lunar: true }),
+  ]
+}

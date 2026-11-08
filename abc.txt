@@ -1,0 +1,10 @@
+Tôi có 1 link google sheet trong đó chứa thông tin họ tên, ngày sinh, giới tính, địa chỉ, số điện thoại
+bây giờ tôi muốn làm 1 web frontend để deploy bằng github page
+tuy nhiên do source code phải public còn thông tin thì tôi lại không muốn public
+nên tôi muốn 1 tài khoản đăng nhập được lưu trong biến môi trường của github
+link google sheet cũng lưu trong biến môi trường
+trang web sẽ có 1 calendar 12 tháng
+trong tháng sẽ hiển thị từng ngày, trong mỗi ngày sẽ có 1 event nếu có 1 sinh nhật ai đó
+khi hover hoặc click sẽ hiển thị đầy đủ thông tin của người đó
+tôi muốn làm bằng framework nào đó đẹp nhất, hãy gợi ý cho tôi
+như làm bằng vuejs, nuxtjs hay gì đó mà có calendar đẹp nhất

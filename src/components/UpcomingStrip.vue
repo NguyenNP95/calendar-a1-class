@@ -1,0 +1,54 @@
+<script setup>
+import { countdownLabel, formatDayMonth, weekdayAbbr } from '../utils/dates.js'
+import { personColor, shortName } from '../utils/people.js'
+import Avatar from './Avatar.vue'
+import Icon from './Icon.vue'
+
+defineProps({
+  items: { type: Array, required: true },
+})
+const emit = defineEmits(['open'])
+
+function subtitle(event) {
+  if (event.type === 'anniversary') return event.years ? `${event.years} năm ngày cưới` : 'Ngày cưới'
+  return event.age != null ? `Tròn ${event.age} tuổi` : 'Sinh nhật'
+}
+</script>
+
+<template>
+  <section aria-labelledby="upcoming-title">
+    <h2 id="upcoming-title" class="mb-2.5 text-xs font-semibold uppercase tracking-wider text-muted">Sắp tới</h2>
+    <div class="fade-edges no-scrollbar -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-px-4 px-4 pb-3 pt-1 sm:-mx-6 sm:scroll-px-6 sm:px-6">
+      <button
+        v-for="event in items"
+        :key="event.id"
+        type="button"
+        class="relative flex w-[13.5rem] shrink-0 snap-start items-center gap-3 overflow-hidden rounded-2xl bg-surface p-3 pl-4 text-left shadow-soft transition hover:-translate-y-0.5 hover:shadow-card"
+        @click="emit('open', event)"
+      >
+        <span
+          class="absolute inset-y-0 left-0 w-1"
+          :style="{ backgroundColor: event.type === 'birthday' ? personColor(event.person) : 'rgb(var(--c-clay))' }"
+        />
+        <Avatar :person="event.person" size="md" />
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm font-semibold">{{ shortName(event.person.name) }}</p>
+          <p class="flex items-center gap-1 truncate text-xs text-muted">
+            <Icon :name="event.type === 'birthday' ? 'cake' : 'heart'" :size="11" :class="event.type === 'anniversary' ? 'text-clay' : ''" />
+            {{ subtitle(event) }}
+            <Icon v-if="event.lunar" name="moon" :size="10" />
+          </p>
+          <p class="mt-1 flex items-center justify-between gap-2 text-[11px]">
+            <span class="tabular-nums text-subtle">{{ weekdayAbbr(event.date) }}, {{ formatDayMonth(event.date) }}</span>
+            <span
+              class="rounded-full px-1.5 py-0.5 font-semibold"
+              :class="event.daysLeft === 0 ? 'bg-clay text-on-clay' : event.daysLeft <= 7 ? 'bg-clay/10 text-clay' : 'text-muted'"
+            >
+              {{ countdownLabel(event.daysLeft) }}
+            </span>
+          </p>
+        </div>
+      </button>
+    </div>
+  </section>
+</template>
