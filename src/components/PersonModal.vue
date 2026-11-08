@@ -60,7 +60,6 @@ const events = computed(() => personEventsInYear(props.person, props.year))
 const birthday = computed(() => events.value.find((e) => e.type === 'birthday'))
 const anniversary = computed(() => events.value.find((e) => e.type === 'anniversary'))
 const phoneDigits = computed(() => toPhoneDigits(props.person.phone))
-const mapsUrl = computed(() => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(props.person.address || '')}`)
 
 const meta = computed(() => {
   const parts = []
@@ -279,17 +278,7 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="person.address" class="flex items-start justify-between gap-4 py-3">
           <dt class="shrink-0 text-muted">Địa chỉ</dt>
-          <dd class="text-right font-medium">
-            {{ person.address }}
-            <a
-              :href="mapsUrl"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="mt-1 flex items-center justify-end gap-1 text-xs font-normal text-clay hover:underline"
-            >
-              <Icon name="pin" :size="12" /> Xem bản đồ
-            </a>
-          </dd>
+          <dd class="text-right font-medium">{{ person.address }}</dd>
         </div>
         <div v-if="person.marriedAt" class="flex items-start justify-between gap-4 py-3">
           <dt class="text-muted">{{ married ? 'Ngày cưới' : 'Gia đình' }}</dt>

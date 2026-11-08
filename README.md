@@ -8,7 +8,7 @@ Web lịch sinh nhật đọc dữ liệu từ Google Sheet, deploy GitHub Pages
 - **Âm lịch**: mỗi ô ngày hiện ngày âm; hỗ trợ người tổ chức sinh nhật theo âm lịch; tuổi Can Chi.
 - **Banner "Hôm nay"** khi có sinh nhật, mục **Sắp tới** có đếm ngược và số tuổi.
 - **Kỷ niệm ngày cưới** từ cột "Đã lấy chồng / vợ".
-- Bấm vào một người để xem đầy đủ thông tin, có nút **Gọi / Zalo / Sao chép số / Xem bản đồ**.
+- Bấm vào một người để xem đầy đủ thông tin, có nút **Gọi / Zalo / Sao chép số**.
 - **Dark mode** (tự theo hệ thống, hoặc bấm nút để chọn Sáng / Tối).
 - Mobile: chấm màu trong ô ngày, vuốt trái/phải để chuyển tháng. Desktop: hover xem nhanh, phím tắt `←` `→` chuyển, `T` về hôm nay, `1` `2` `3` đổi chế độ xem, `Esc` đóng.
 - Link trực tiếp tới một chế độ xem: `?view=month`, `?view=year`, `?view=list`.
