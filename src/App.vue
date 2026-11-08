@@ -3,11 +3,12 @@ import { onMounted, ref, shallowRef } from 'vue'
 import CalendarApp from './components/CalendarApp.vue'
 import LoginView from './components/LoginView.vue'
 import { config } from './config.js'
-import { decryptPayload } from './utils/crypto.js'
+import { decryptPayload, exportKey, importKey } from './utils/crypto.js'
 import { normalizePeople } from './utils/people.js'
+import { setPhotoKey } from './utils/photos.js'
 import { session } from './utils/storage.js'
 
-const CACHE_KEY = 'a1-data-v2'
+const CACHE_KEY = 'a1-data-v3'
 
 const people = shallowRef(null)
 const generatedAt = ref('')
@@ -44,7 +45,9 @@ onMounted(async () => {
     const cached = session.get(CACHE_KEY)
     if (cached) {
       try {
-        setData(JSON.parse(cached))
+        const json = JSON.parse(cached)
+        if (json.key) setPhotoKey(await importKey(json.key))
+        setData(json)
         return
       } catch {
         session.remove(CACHE_KEY)
@@ -63,9 +66,15 @@ async function login(password) {
   unlocking.value = true
   try {
     const payload = await loadEncrypted()
-    const json = JSON.parse(await decryptPayload(payload, password))
+    const { text, key } = await decryptPayload(payload, password)
+    const json = JSON.parse(text)
     setData(json)
-    session.set(CACHE_KEY, JSON.stringify({ people: json.people || json, generatedAt: json.generatedAt || '' }))
+    setPhotoKey(key)
+    session.set(CACHE_KEY, JSON.stringify({
+      people: json.people || json,
+      generatedAt: json.generatedAt || '',
+      key: await exportKey(key),
+    }))
   } catch (err) {
     error.value = err.message || 'Mật khẩu không đúng'
   } finally {
@@ -76,6 +85,7 @@ async function login(password) {
 function logout() {
   people.value = null
   error.value = ''
+  setPhotoKey(null)
   session.remove(CACHE_KEY)
   loadEncrypted().catch((err) => { error.value = err.message })
 }

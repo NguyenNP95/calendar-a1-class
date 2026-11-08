@@ -35,12 +35,13 @@ jobs:
           SHEET_RANGE: ${{ secrets.SHEET_RANGE }}
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          REQUIRE_AUTH: ${{ vars.REQUIRE_AUTH }}
-          VITE_REQUIRE_AUTH: ${{ vars.REQUIRE_AUTH }}
+          DRIVE_AVATAR_FOLDER_ID: ${{ secrets.DRIVE_AVATAR_FOLDER_ID }}
+          REQUIRE_AUTH: ${{ vars.REQUIRE_AUTH || secrets.REQUIRE_AUTH }}
+          VITE_REQUIRE_AUTH: ${{ vars.REQUIRE_AUTH || secrets.REQUIRE_AUTH }}
         run: node scripts/fetch-and-encrypt.mjs
       - name: Build
         env:
-          VITE_REQUIRE_AUTH: ${{ vars.REQUIRE_AUTH }}
+          VITE_REQUIRE_AUTH: ${{ vars.REQUIRE_AUTH || secrets.REQUIRE_AUTH }}
           VITE_BASE: ${{ vars.VITE_BASE }}
         run: npm run build
       - uses: actions/configure-pages@v5

@@ -28,9 +28,39 @@ Script đọc theo **tên cột** (không phân biệt hoa thường, có dấu 
 | Ghi chú | note | |
 | Đã lấy chồng / vợ / Ngày cưới | marriedAt | nếu là ngày, lịch hiện kỷ niệm cưới hằng năm |
 | Âm lịch / Sinh nhật âm *(tuỳ chọn)* | lunar | điền `x` / `có` nếu người đó tổ chức sinh nhật theo âm lịch |
-| Ảnh / Avatar *(tuỳ chọn)* | avatar | URL ảnh; ô trống thì hiện chữ cái tên |
+| Ảnh / Avatar *(tuỳ chọn)* | avatar | URL ảnh công khai; nên dùng thư mục Drive (xem bên dưới) |
 
 Người sinh 29/2 được tổ chức vào 28/2 ở năm không nhuận.
+
+## Avatar từ thư mục Google Drive
+
+Repo không chứa token hay code gọi Facebook. Ảnh đi theo đường:
+
+```
+Apps Script (riêng tư, có token FB) ──mỗi tuần──▶ thư mục Drive: 1.jpg, 2.jpg… (theo STT)
+GitHub Actions (service account)    ──mỗi ngày──▶ đọc thư mục, thu nhỏ 160px, nhúng vào data.enc
+```
+
+1. Google Cloud (cùng project với service account): **APIs & Services → Library → Google Drive API → Enable**.
+2. Tạo thư mục trên Drive, **Share** cho email service account (quyền Viewer).
+3. Thêm secret `DRIVE_AVATAR_FOLDER_ID` = phần sau `/folders/` trong link thư mục (local: thêm vào `.env`).
+4. Cho ảnh vào thư mục, tên file là **STT** (`12.jpg`) hoặc **họ tên** (`Nguyen Van A.png`). Có thể:
+   - dùng [apps-script/fb-avatar-to-drive.gs](apps-script/fb-avatar-to-drive.gs) để tự tải avatar Facebook mỗi tuần.
+     Script đọc một danh sách `STT, Tên, fbid` (Google Sheet hoặc file CSV trên Drive), fbid là ID số, username
+     hoặc link profile. Token lưu trong Script Properties, không nằm trong repo. Hướng dẫn cài ở đầu file.
+     Apps Script không tải được ảnh AVIF từ Facebook, nên ảnh AVIF được tải qua [wsrv.nl](https://wsrv.nl)
+     và chuyển sang JPG (chỉ gửi link ảnh công khai, không gửi token). Hoặc
+   - tự bỏ ảnh vào thư mục.
+
+Mỗi ảnh có hai bản:
+
+- **160px** nhúng trong dữ liệu, dùng cho lịch và danh sách.
+- **640px** là file riêng trong `avatars/`, chỉ tải khi mở popup thông tin (bấm vào ảnh để xem lớn).
+  Khi bật đăng nhập, file này được mã hoá cùng khoá với `data.enc` (`.bin`, tên ngẫu nhiên). Khi public thì là file `.webp`.
+
+Lỗi ảnh không làm hỏng lần deploy, người không có ảnh hiện chữ cái tên. Log chỉ in số lượng, không in tên.
+
+Thử trên máy với thư mục ảnh local: `AVATAR_DIR=./avatars npm run sync` (thư mục `avatars/` đã được `.gitignore`).
 
 ## Tuỳ chỉnh
 

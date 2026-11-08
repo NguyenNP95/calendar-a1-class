@@ -1,5 +1,5 @@
-import { createCipheriv, pbkdf2Sync, randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { createCipheriv, createHash, pbkdf2Sync, randomBytes } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -12,15 +12,27 @@ const SAMPLE_PASSWORD = 'a1-class'
 const publicDir = join(root, 'public')
 mkdirSync(publicDir, { recursive: true })
 
-const requireAuth = (process.env.REQUIRE_AUTH || process.env.VITE_REQUIRE_AUTH || 'true') !== 'false'
+// Chấp nhận "false", "False", " false ", "0", "no", "off", "không"… (khớp với src/config.js)
+const OFF_VALUES = ['false', '0', 'no', 'off', 'khong', 'không']
+const authSetting = process.env.REQUIRE_AUTH || process.env.VITE_REQUIRE_AUTH || ''
+const requireAuth = !OFF_VALUES.includes(authSetting.trim().toLowerCase())
 const useSample = SAMPLE || !process.env.SHEET_ID
+
+console.log(
+  requireAuth
+    ? `Chế độ: CÓ đăng nhập, dữ liệu được mã hoá (REQUIRE_AUTH=${JSON.stringify(authSetting)})`
+    : `Chế độ: KHÔNG đăng nhập, dữ liệu công khai (REQUIRE_AUTH=${JSON.stringify(authSetting)})`,
+)
 
 // Trên CI tuyệt đối không deploy dữ liệu mẫu, cũng không mã hoá bằng mật khẩu mặc định (đã công khai trong README).
 if (process.env.CI && !SAMPLE && !process.env.SHEET_ID) {
   fail('Thiếu secret SHEET_ID trên GitHub Actions.')
 }
 if (requireAuth && !useSample && !process.env.APP_PASSWORD) {
-  fail('Thiếu APP_PASSWORD. Không thể mã hoá dữ liệu thật bằng mật khẩu mặc định.')
+  fail(
+    'Thiếu APP_PASSWORD. Không thể mã hoá dữ liệu thật bằng mật khẩu mặc định. '
+    + 'Nếu muốn tắt đăng nhập, đặt REQUIRE_AUTH=false trong tab Variables của GitHub.',
+  )
 }
 if (requireAuth && !useSample && process.env.APP_PASSWORD === SAMPLE_PASSWORD) {
   console.warn('⚠️  APP_PASSWORD đang trùng mật khẩu mẫu công khai, hãy đổi sang mật khẩu riêng.')
@@ -34,13 +46,32 @@ async function main() {
   const password = process.env.APP_PASSWORD || SAMPLE_PASSWORD
   const people = useSample ? samplePeople() : await fetchSheetPeople()
 
+  // Avatar: thư mục Drive (DRIVE_AVATAR_FOLDER_ID) hoặc thư mục trên máy (AVATAR_DIR, để thử nghiệm)
+  const folderId = process.env.DRIVE_AVATAR_FOLDER_ID
+  const localDir = process.env.AVATAR_DIR
+  let photos = new Map()
+  if (localDir || (folderId && !useSample)) {
+    try {
+      const { attachAvatars } = await import('./avatars.mjs')
+      photos = await attachAvatars(people, { folderId, localDir, getToken: getGoogleToken })
+    } catch (err) {
+      // Lỗi ảnh không được làm hỏng cả lần đồng bộ: vẫn deploy lịch, chỉ thiếu avatar
+      console.warn(`⚠️  Bỏ qua avatar: ${err.message.split('\n')[0].slice(0, 300)}`)
+    }
+  }
+
+  // Một khoá dùng chung cho data.enc và các ảnh lớn (trình duyệt chỉ cần nhập mật khẩu một lần)
+  const salt = randomBytes(16)
+  const key = requireAuth ? pbkdf2Sync(password, salt, ITERATIONS, 32, 'sha256') : null
+  writePhotos(people, photos, key)
+
   const payload = {
     generatedAt: new Date().toISOString(),
     people,
   }
 
   if (requireAuth) {
-    writeFileSync(join(publicDir, 'data.enc'), JSON.stringify(encryptJson(JSON.stringify(payload), password)))
+    writeFileSync(join(publicDir, 'data.enc'), JSON.stringify(encryptJson(JSON.stringify(payload), key, salt)))
     removePublic('data.json')
   } else {
     writeFileSync(join(publicDir, 'data.json'), JSON.stringify(payload, null, 2))
@@ -85,13 +116,15 @@ function loadEnv(path) {
   }
 }
 
-function encryptJson(plain, pass) {
-  const salt = randomBytes(16)
+/** AES-256-GCM → [iv 12 byte][dữ liệu mã hoá][tag 16 byte] */
+function encryptBytes(plain, key) {
   const iv = randomBytes(12)
-  const key = pbkdf2Sync(pass, salt, ITERATIONS, 32, 'sha256')
   const cipher = createCipheriv('aes-256-gcm', key, iv)
-  const encrypted = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()])
-  const data = Buffer.concat([encrypted, cipher.getAuthTag()])
+  return { iv, data: Buffer.concat([cipher.update(plain), cipher.final(), cipher.getAuthTag()]) }
+}
+
+function encryptJson(plain, key, salt) {
+  const { iv, data } = encryptBytes(Buffer.from(plain, 'utf8'), key)
   return {
     v: 1,
     kdf: 'pbkdf2-sha256',
@@ -99,6 +132,32 @@ function encryptJson(plain, pass) {
     salt: salt.toString('base64'),
     iv: iv.toString('base64'),
     data: data.toString('base64'),
+  }
+}
+
+/**
+ * Ảnh lớn (popup) → public/avatars/, gắn đường dẫn vào person.photo.
+ *   Có đăng nhập: file .bin mã hoá bằng cùng khoá với data.enc, tên ngẫu nhiên.
+ *   Public:       file .webp, tên theo hash nội dung (trình duyệt cache được, đổi ảnh thì đổi tên).
+ * Thư mục được xoá sạch mỗi lần đồng bộ để không sót ảnh cũ.
+ */
+function writePhotos(people, photos, key) {
+  const dir = join(publicDir, 'avatars')
+  rmSync(dir, { recursive: true, force: true })
+  for (const person of people) delete person.photo
+  if (!photos.size) return
+  mkdirSync(dir, { recursive: true })
+  for (const [person, buffer] of photos) {
+    let name
+    if (key) {
+      const { iv, data } = encryptBytes(buffer, key)
+      name = `${randomBytes(9).toString('hex')}.bin`
+      writeFileSync(join(dir, name), Buffer.concat([iv, data]))
+    } else {
+      name = `${createHash('sha256').update(buffer).digest('hex').slice(0, 16)}.webp`
+      writeFileSync(join(dir, name), buffer)
+    }
+    person.photo = `avatars/${name}`
   }
 }
 
@@ -195,19 +254,29 @@ function rowsToPeople(values) {
   return people
 }
 
+let googleClient = null
+async function getGoogleToken() {
+  if (!googleClient) {
+    const { GoogleAuth } = await import('google-auth-library')
+    const auth = new GoogleAuth({
+      credentials: readCredentials(),
+      scopes: [
+        'https://www.googleapis.com/auth/spreadsheets.readonly',
+        'https://www.googleapis.com/auth/drive.readonly',
+      ],
+    })
+    googleClient = await auth.getClient()
+  }
+  const token = await googleClient.getAccessToken()
+  return token.token || token
+}
+
 async function fetchSheetPeople() {
-  const { GoogleAuth } = await import('google-auth-library')
-  const auth = new GoogleAuth({
-    credentials: readCredentials(),
-    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-  })
-  const client = await auth.getClient()
-  const token = await client.getAccessToken()
   const id = process.env.SHEET_ID
   const range = encodeURIComponent(process.env.SHEET_RANGE || 'A1:Z1000')
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${range}`
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token.token || token}` },
+    headers: { Authorization: `Bearer ${await getGoogleToken()}` },
   })
   if (!res.ok) {
     const body = await res.text()
