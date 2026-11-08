@@ -29,30 +29,33 @@ if (!SAMPLE && !process.env.SHEET_ID) {
   console.warn('Không có SHEET_ID, dùng dữ liệu mẫu. Chạy với --sample hoặc khai báo SHEET_ID.')
 }
 
-const password = process.env.APP_PASSWORD || SAMPLE_PASSWORD
-const people = useSample ? samplePeople() : await fetchSheetPeople()
+// main() được gọi ở CUỐI file, sau khi mọi hằng số (HEADERS, TRUTHY…) đã khởi tạo.
+async function main() {
+  const password = process.env.APP_PASSWORD || SAMPLE_PASSWORD
+  const people = useSample ? samplePeople() : await fetchSheetPeople()
 
-const payload = {
-  generatedAt: new Date().toISOString(),
-  people,
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    people,
+  }
+
+  if (requireAuth) {
+    writeFileSync(join(publicDir, 'data.enc'), JSON.stringify(encryptJson(JSON.stringify(payload), password)))
+    removePublic('data.json')
+  } else {
+    writeFileSync(join(publicDir, 'data.json'), JSON.stringify(payload, null, 2))
+    removePublic('data.enc')
+  }
+
+  writeFileSync(
+    join(publicDir, 'meta.json'),
+    JSON.stringify({ generatedAt: payload.generatedAt, count: people.length, encrypted: requireAuth }, null, 2),
+  )
+
+  console.log(
+    `Đã ghi ${people.length} người → public/${requireAuth ? 'data.enc' : 'data.json'} (${requireAuth ? 'đã mã hoá' : 'public'})`,
+  )
 }
-
-if (requireAuth) {
-  writeFileSync(join(publicDir, 'data.enc'), JSON.stringify(encryptJson(JSON.stringify(payload), password)))
-  removePublic('data.json')
-} else {
-  writeFileSync(join(publicDir, 'data.json'), JSON.stringify(payload, null, 2))
-  removePublic('data.enc')
-}
-
-writeFileSync(
-  join(publicDir, 'meta.json'),
-  JSON.stringify({ generatedAt: payload.generatedAt, count: people.length, encrypted: requireAuth }, null, 2),
-)
-
-console.log(
-  `Đã ghi ${people.length} người → public/${requireAuth ? 'data.enc' : 'data.json'} (${requireAuth ? 'đã mã hoá' : 'public'})`,
-)
 
 // ——————————————————————————————————————————————
 
@@ -146,12 +149,23 @@ function parseVnDate(value) {
   const text = String(value).trim()
   const iso = text.match(/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$/)
   if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`
+  // Khớp cả ô; nếu không được thì tìm một ngày đầy đủ nằm trong chữ, ví dụ "~28/10/2024" hay "28/10/2024?"
   const match = text.match(/^(\d{1,2})[/\-.](\d{1,2})(?:[/\-.](\d{2,4}))?$/)
+    || text.match(/(?<!\d)(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})(?!\d)/)
   if (!match) return text
   let [, d, m, y = '0000'] = match
   if (Number(m) < 1 || Number(m) > 12 || Number(d) < 1 || Number(d) > 31) return text
   if (y.length === 2) y = Number(y) > 50 ? `19${y}` : `20${y}`
   return `${y.padStart(4, '0')}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+}
+
+// Google Sheets lưu SĐT dạng số nên mất số 0 đầu (0352416008 → 352416008). Khôi phục lại.
+function normalizePhone(value) {
+  const text = String(value ?? '').trim()
+  const digits = text.replace(/[\s.\-()]/g, '')
+  if (/^[1-9]\d{8}$/.test(digits)) return `0${digits}`
+  if (/^\+?84[1-9]\d{8}$/.test(digits)) return `0${digits.replace(/^\+?84/, '')}`
+  return text
 }
 
 const TRUTHY = new Set(['x', 'v', 'co', 'yes', 'y', '1', 'true', 'am', 'am lich', 'lich am'])
@@ -173,6 +187,7 @@ function rowsToPeople(values) {
       const raw = row[index] ?? ''
       if (key === 'birthday' || key === 'marriedAt') person[key] = parseVnDate(raw)
       else if (key === 'lunar') person[key] = isTruthyCell(raw)
+      else if (key === 'phone') person[key] = normalizePhone(raw)
       else person[key] = String(raw).trim()
     })
     if (person.name) people.push(person)
@@ -255,3 +270,5 @@ function samplePeople() {
     p(12, 'Lý Hải Yến', '1995-06-30', 'Nữ', { lunar: true }),
   ]
 }
+
+await main()

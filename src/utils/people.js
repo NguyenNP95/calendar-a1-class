@@ -64,6 +64,19 @@ export function formatVnDate(iso) {
   return parsed.y ? `${dm}/${parsed.y}` : dm
 }
 
+/** Chỉ giữ chữ số (và dấu + đầu) để dùng cho tel: / Zalo. Trả về '' nếu không giống số điện thoại. */
+export function phoneDigits(phone = '') {
+  const digits = String(phone).replace(/[^\d+]/g, '')
+  return digits.replace(/\D/g, '').length >= 9 ? digits : ''
+}
+
+/** "0352416008" → "0352 416 008" cho dễ đọc; giữ nguyên nếu không phải số di động 10 số. */
+export function formatPhone(phone = '') {
+  const digits = String(phone).replace(/[\s.\-]/g, '')
+  if (/^0\d{9}$/.test(digits)) return `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`
+  return phone
+}
+
 const TRUTHY = new Set(['x', 'v', 'co', 'yes', 'y', '1', 'true', 'am', 'am lich', 'lich am', '✓', '✔', '☑'])
 export function isTruthyCell(value) {
   if (typeof value === 'boolean') return value

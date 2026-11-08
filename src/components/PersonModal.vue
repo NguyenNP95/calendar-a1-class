@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { countdownLabel, daysBetween, formatDayMonth, weekdayName } from '../utils/dates.js'
 import { personEventsInYear } from '../utils/events.js'
 import { canChiYear, formatLunar, solarToLunar } from '../utils/lunar.js'
-import { formatVnDate, parseIsoDate } from '../utils/people.js'
+import { formatPhone, formatVnDate, parseIsoDate, phoneDigits as toPhoneDigits } from '../utils/people.js'
 import Avatar from './Avatar.vue'
 import Icon from './Icon.vue'
 
@@ -26,7 +26,7 @@ const married = computed(() => parseIsoDate(props.person.marriedAt))
 const events = computed(() => personEventsInYear(props.person, props.year))
 const birthday = computed(() => events.value.find((e) => e.type === 'birthday'))
 const anniversary = computed(() => events.value.find((e) => e.type === 'anniversary'))
-const phoneDigits = computed(() => (props.person.phone || '').replace(/[^\d+]/g, ''))
+const phoneDigits = computed(() => toPhoneDigits(props.person.phone))
 const mapsUrl = computed(() => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(props.person.address || '')}`)
 
 const meta = computed(() => {
@@ -164,8 +164,9 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="person.phone" class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3">
           <dt class="text-muted">Điện thoại</dt>
-          <dd class="flex items-center gap-1.5">
-            <a :href="`tel:${phoneDigits}`" class="mr-1 font-medium tabular-nums text-clay hover:underline">{{ person.phone }}</a>
+          <dd v-if="!phoneDigits" class="font-medium">{{ person.phone }}</dd>
+          <dd v-else class="flex items-center gap-1.5">
+            <a :href="`tel:${phoneDigits}`" class="mr-1 whitespace-nowrap font-medium tabular-nums text-clay hover:underline">{{ formatPhone(person.phone) }}</a>
             <a
               :href="`tel:${phoneDigits}`"
               class="grid h-8 w-8 place-items-center rounded-full bg-paper text-ink transition hover:bg-clay hover:text-on-clay"
