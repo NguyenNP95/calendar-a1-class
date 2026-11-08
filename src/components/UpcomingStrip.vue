@@ -1,4 +1,5 @@
 <script setup>
+import { ref } from 'vue'
 import { countdownLabel, formatDayMonth, weekdayAbbr } from '../utils/dates.js'
 import { personColor, shortName } from '../utils/people.js'
 import Avatar from './Avatar.vue'
@@ -13,12 +14,73 @@ function subtitle(event) {
   if (event.type === 'anniversary') return event.years ? `${event.years} năm ngày cưới` : 'Ngày cưới'
   return event.age != null ? `Tròn ${event.age} tuổi` : 'Sinh nhật'
 }
+
+// Kéo bằng chuột trái để cuộn ngang (cảm ứng đã cuộn được sẵn, không đụng tới)
+const scroller = ref(null)
+const dragging = ref(false)
+let drag = null
+let snapTimer = 0
+
+function onPointerDown(e) {
+  if (e.pointerType !== 'mouse' || e.button !== 0) return
+  const el = scroller.value
+  if (!el || el.scrollWidth <= el.clientWidth) return
+  clearTimeout(snapTimer)
+  drag = { x: e.clientX, left: el.scrollLeft, moved: false, id: e.pointerId }
+}
+
+function onPointerMove(e) {
+  if (!drag || e.pointerId !== drag.id) return
+  const dx = e.clientX - drag.x
+  if (!drag.moved) {
+    if (Math.abs(dx) < 5) return // chưa đủ xa: vẫn coi là click
+    drag.moved = true
+    dragging.value = true // tắt snap trong lúc kéo để không bị giật
+    scroller.value.setPointerCapture(e.pointerId)
+  }
+  scroller.value.scrollLeft = drag.left - dx
+}
+
+function onPointerUp(e) {
+  if (!drag || e.pointerId !== drag.id) return
+  const moved = drag.moved
+  drag = null
+  if (!moved) return
+  // Trượt êm về thẻ gần nhất rồi bật lại snap
+  const el = scroller.value
+  const padding = parseFloat(getComputedStyle(el).scrollPaddingLeft) || 0
+  const cards = [...el.children]
+  const target = cards.reduce((best, card) => {
+    const left = card.offsetLeft - padding
+    return Math.abs(left - el.scrollLeft) < Math.abs(best - el.scrollLeft) ? left : best
+  }, el.scrollLeft)
+  el.scrollTo({ left: target, behavior: 'smooth' })
+  snapTimer = setTimeout(() => { dragging.value = false }, 450)
+}
+
+// Vừa kéo xong thì không mở popup của thẻ dưới con trỏ
+function onClickCapture(e) {
+  if (dragging.value) {
+    e.stopPropagation()
+    e.preventDefault()
+  }
+}
 </script>
 
 <template>
   <section aria-labelledby="upcoming-title">
     <h2 id="upcoming-title" class="mb-2.5 text-xs font-semibold uppercase tracking-wider text-muted">Sắp tới</h2>
-    <div class="fade-edges no-scrollbar -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-px-4 px-4 pb-3 pt-1 sm:-mx-6 sm:scroll-px-6 sm:px-6">
+    <div
+      ref="scroller"
+      class="fade-edges no-scrollbar -mx-4 flex gap-3 overflow-x-auto scroll-px-4 px-4 pb-3 pt-1 sm:-mx-6 sm:scroll-px-6 sm:px-6"
+      :class="dragging ? 'cursor-grabbing select-none snap-none' : 'snap-x snap-mandatory'"
+      @pointerdown="onPointerDown"
+      @pointermove="onPointerMove"
+      @pointerup="onPointerUp"
+      @pointercancel="onPointerUp"
+      @click.capture="onClickCapture"
+      @dragstart.prevent
+    >
       <button
         v-for="event in items"
         :key="event.id"
